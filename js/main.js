@@ -8,6 +8,8 @@ import { I18N, detectLang, persistLang } from "./i18n.js";
 
 // ---------- State ----------
 let lang = detectLang();
+let _loadingDismissed = false;
+let _loadingMessageKey = "loading";
 const state = {
   bodyMeshes: [],   // { data, group, lod, hit, sprite, core, label, labelEl, color, importance }
   refMeshes: [],    // reference (Sun + planets) for context
@@ -26,9 +28,41 @@ const CATEGORY_COLOR = {
   deep:  0x00ffa3,
 };
 
+const loadingEl = document.getElementById("loading");
+const loadingTextEl = loadingEl ? loadingEl.querySelector(".loading-text") : null;
+
+function translateUi(key) {
+  return (I18N[lang] && I18N[lang][key]) || (I18N.en && I18N.en[key]) || key;
+}
+
+function setLoadingMessage(key, error = false) {
+  _loadingMessageKey = key;
+  if (!loadingEl || !loadingTextEl || _loadingDismissed) return;
+  loadingTextEl.textContent = translateUi(key);
+  loadingEl.classList.toggle("error", error);
+}
+
+function showLoadingError(key = "load_failed") {
+  setLoadingMessage(key, true);
+}
+
+window.addEventListener("error", () => {
+  if (!_loadingDismissed && _loadingMessageKey === "loading") showLoadingError("load_failed");
+});
+
+window.addEventListener("unhandledrejection", () => {
+  if (!_loadingDismissed && _loadingMessageKey === "loading") showLoadingError("load_failed");
+});
+
 // ---------- Scene setup ----------
 const canvas = document.getElementById("scene");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+} catch (err) {
+  showLoadingError("webgl_error");
+  throw err;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000, 0);
@@ -551,6 +585,9 @@ function applyLang() {
   document.querySelectorAll(".lang-switch button").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.lang === lang);
   });
+  if (!_loadingDismissed && loadingTextEl) {
+    loadingTextEl.textContent = translateUi(_loadingMessageKey);
+  }
   // Update labels
   state.bodyMeshes.forEach(b => {
     b.labelEl.textContent = b.data.names[lang] || b.data.names.en;
@@ -774,7 +811,6 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- Animation loop ----------
-let _loadingDismissed = false;
 function tick() {
   requestAnimationFrame(tick);
   if (state.flyTween) state.flyTween(performance.now());

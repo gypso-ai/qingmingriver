@@ -322,6 +322,11 @@ html, body {
   transition: opacity .6s ease;
 }
 #loading.fade { opacity: 0; pointer-events: none; }
+#loading.error {
+  padding: 24px;
+  text-align: center;
+}
+#loading.error .spinner { display: none; }
 .spinner {
   width: 56px; height: 56px;
   border-radius: 50%;
@@ -334,6 +339,13 @@ html, body {
   color: var(--text-dim);
   letter-spacing: 2px;
   font-size: 13px;
+}
+#loading.error .loading-text {
+  max-width: min(440px, calc(100vw - 48px));
+  color: var(--warn);
+  letter-spacing: 0.4px;
+  line-height: 1.6;
+  font-size: 14px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
