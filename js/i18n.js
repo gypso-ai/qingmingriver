@@ -74,11 +74,27 @@ export const I18N = {
   },
 };
 
+function readStoredLang() {
+  try {
+    return localStorage.getItem("aceb-lang");
+  } catch {
+    return null;
+  }
+}
+
 export function detectLang() {
-  const stored = localStorage.getItem("aceb-lang");
+  const stored = readStoredLang();
   if (stored && I18N[stored]) return stored;
   const nav = (navigator.language || "en").toLowerCase();
   if (nav.startsWith("zh")) return "zh";
   if (nav.startsWith("ja")) return "ja";
   return "en";
+}
+
+export function persistLang(lang) {
+  try {
+    localStorage.setItem("aceb-lang", lang);
+  } catch {
+    // Ignore storage failures so the app can still start in restricted browsers.
+  }
 }
