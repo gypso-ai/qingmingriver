@@ -8,6 +8,8 @@ import { I18N, detectLang, persistLang } from "./i18n.js";
 
 // ---------- State ----------
 let lang = detectLang();
+let loadingDismissed = false;
+let loadingMessageKey = "loading";
 const state = {
   bodyMeshes: [],   // { data, group, lod, hit, sprite, core, label, labelEl, color, importance }
   refMeshes: [],    // reference (Sun + planets) for context
@@ -26,9 +28,50 @@ const CATEGORY_COLOR = {
   deep:  0x00ffa3,
 };
 
+const loadingEl = document.getElementById("loading");
+const loadingTextEl = loadingEl ? loadingEl.querySelector(".loading-text") : null;
+
+function getUiText(key) {
+  return (I18N[lang] && I18N[lang][key]) || (I18N.en && I18N.en[key]) || key;
+}
+
+function setLoadingMessage(key, error = false) {
+  loadingMessageKey = key;
+  if (!loadingEl || !loadingTextEl || loadingDismissed) return;
+  loadingTextEl.textContent = getUiText(key);
+  loadingEl.classList.toggle("error", error);
+}
+
+function showLoadingError(key = "load_failed") {
+  setLoadingMessage(key, true);
+}
+
+function handleBootstrapError(event) {
+  if (!loadingDismissed && loadingMessageKey === "loading") {
+    console.error("Viewer bootstrap failed:", event.error || event.message || event);
+    showLoadingError("load_failed");
+  }
+}
+
+function handleBootstrapRejection(event) {
+  if (!loadingDismissed && loadingMessageKey === "loading") {
+    console.error("Viewer bootstrap rejected:", event.reason || event);
+    showLoadingError("load_failed");
+  }
+}
+
+window.addEventListener("error", handleBootstrapError);
+window.addEventListener("unhandledrejection", handleBootstrapRejection);
+
 // ---------- Scene setup ----------
 const canvas = document.getElementById("scene");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+} catch (err) {
+  showLoadingError("webgl_error");
+  throw err;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000, 0);
@@ -551,6 +594,9 @@ function applyLang() {
   document.querySelectorAll(".lang-switch button").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.lang === lang);
   });
+  if (!loadingDismissed && loadingTextEl) {
+    loadingTextEl.textContent = getUiText(loadingMessageKey);
+  }
   // Update labels
   state.bodyMeshes.forEach(b => {
     b.labelEl.textContent = b.data.names[lang] || b.data.names.en;
@@ -774,7 +820,6 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- Animation loop ----------
-let _loadingDismissed = false;
 function tick() {
   requestAnimationFrame(tick);
   if (state.flyTween) state.flyTween(performance.now());
@@ -799,8 +844,10 @@ function tick() {
   // than in a `window.load` listener) means we don't block on the browser
   // finishing every CDN sub-resource — the scene is already set up and we've
   // just produced a frame, so the user can start interacting immediately.
-  if (!_loadingDismissed) {
-    _loadingDismissed = true;
+  if (!loadingDismissed) {
+    loadingDismissed = true;
+    window.removeEventListener("error", handleBootstrapError);
+    window.removeEventListener("unhandledrejection", handleBootstrapRejection);
     const ld = document.getElementById("loading");
     if (ld) {
       ld.classList.add("fade");
