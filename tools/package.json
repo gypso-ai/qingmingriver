@@ -1,0 +1,13 @@
+{
+  "name": "qingmingriver-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Build-time tools for generating procedural glTF models for the viewer.",
+  "scripts": {
+    "build:models": "node build-models.mjs"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  }
+}

@@ -18,18 +18,30 @@ export function pos(au, angle, tilt = 0, jitter = null) {
   return { x, y, z };
 }
 
-// Reference bodies (Sun + planets) for spatial context
+// Reference bodies (Sun + planets) for spatial context. The optional `model`
+// field points at a procedural .glb in /assets/models that is loaded on demand
+// via THREE.LOD when the camera gets close enough.
 export const REFERENCE_BODIES = [
-  { id: "sun",     names: { zh: "太阳",  en: "Sun",     ja: "太陽" },     au: 0,    angle: 0,   color: 0xffd27a, size: 6.0, glow: true },
-  { id: "mercury", names: { zh: "水星",  en: "Mercury", ja: "水星" },     au: 0.39, angle: 30,  color: 0xa39282, size: 1.2 },
-  { id: "venus",   names: { zh: "金星",  en: "Venus",   ja: "金星" },     au: 0.72, angle: 110, color: 0xe8c98a, size: 1.6 },
-  { id: "earth",   names: { zh: "地球",  en: "Earth",   ja: "地球" },     au: 1.00, angle: 200, color: 0x4fc3ff, size: 1.7 },
-  { id: "mars",    names: { zh: "火星",  en: "Mars",    ja: "火星" },     au: 1.52, angle: 280, color: 0xff7a59, size: 1.4 },
-  { id: "jupiter", names: { zh: "木星",  en: "Jupiter", ja: "木星" },     au: 5.20, angle: 60,  color: 0xe2b07a, size: 3.6 },
-  { id: "saturn",  names: { zh: "土星",  en: "Saturn",  ja: "土星" },     au: 9.58, angle: 150, color: 0xe6d3a3, size: 3.0 },
-  { id: "uranus",  names: { zh: "天王星", en: "Uranus", ja: "天王星" },   au: 19.2, angle: 230, color: 0xa8e0e6, size: 2.4 },
-  { id: "neptune", names: { zh: "海王星", en: "Neptune", ja: "海王星" },  au: 30.1, angle: 320, color: 0x6c9eff, size: 2.4 },
-  { id: "pluto",   names: { zh: "冥王星", en: "Pluto",  ja: "冥王星" },   au: 39.5, angle: 0,   color: 0xbfa28a, size: 1.0 },
+  { id: "sun",     names: { zh: "太阳",  en: "Sun",     ja: "太陽" },     au: 0,    angle: 0,   color: 0xffd27a, size: 6.0, glow: true,
+    model: "./assets/models/sun.glb",     modelScale: 6.0 },
+  { id: "mercury", names: { zh: "水星",  en: "Mercury", ja: "水星" },     au: 0.39, angle: 30,  color: 0xa39282, size: 1.2,
+    model: "./assets/models/mercury.glb", modelScale: 1.2 },
+  { id: "venus",   names: { zh: "金星",  en: "Venus",   ja: "金星" },     au: 0.72, angle: 110, color: 0xe8c98a, size: 1.6,
+    model: "./assets/models/venus.glb",   modelScale: 1.6 },
+  { id: "earth",   names: { zh: "地球",  en: "Earth",   ja: "地球" },     au: 1.00, angle: 200, color: 0x4fc3ff, size: 1.7,
+    model: "./assets/models/earth.glb",   modelScale: 1.7 },
+  { id: "mars",    names: { zh: "火星",  en: "Mars",    ja: "火星" },     au: 1.52, angle: 280, color: 0xff7a59, size: 1.4,
+    model: "./assets/models/mars.glb",    modelScale: 1.4 },
+  { id: "jupiter", names: { zh: "木星",  en: "Jupiter", ja: "木星" },     au: 5.20, angle: 60,  color: 0xe2b07a, size: 3.6,
+    model: "./assets/models/jupiter.glb", modelScale: 3.6 },
+  { id: "saturn",  names: { zh: "土星",  en: "Saturn",  ja: "土星" },     au: 9.58, angle: 150, color: 0xe6d3a3, size: 3.0,
+    model: "./assets/models/saturn.glb",  modelScale: 3.0 },
+  { id: "uranus",  names: { zh: "天王星", en: "Uranus", ja: "天王星" },   au: 19.2, angle: 230, color: 0xa8e0e6, size: 2.4,
+    model: "./assets/models/uranus.glb",  modelScale: 2.4 },
+  { id: "neptune", names: { zh: "海王星", en: "Neptune", ja: "海王星" },  au: 30.1, angle: 320, color: 0x6c9eff, size: 2.4,
+    model: "./assets/models/neptune.glb", modelScale: 2.4 },
+  { id: "pluto",   names: { zh: "冥王星", en: "Pluto",  ja: "冥王星" },   au: 39.5, angle: 0,   color: 0xbfa28a, size: 1.0,
+    model: "./assets/models/pluto.glb",   modelScale: 1.0 },
 ];
 
 // Spacecraft / artificial bodies
@@ -40,6 +52,7 @@ export const BODIES = [
   // === Interstellar / deep space (heliocentric > 50 AU) ===
   {
     id: "voyager1", category: "deep", au: 165, angle: 17, tilt: 35,
+    model: "./assets/models/voyager.glb", modelScale: 1.2,
     names:    { zh: "旅行者1号", en: "Voyager 1", ja: "ボイジャー1号" },
     location: { zh: "星际空间（向蛇夫座方向）", en: "Interstellar space (toward Ophiuchus)", ja: "恒星間空間（へびつかい座方向）" },
     agency: "NASA / JPL",
@@ -55,6 +68,7 @@ export const BODIES = [
   },
   {
     id: "voyager2", category: "deep", au: 138, angle: 220, tilt: -48,
+    model: "./assets/models/voyager.glb", modelScale: 1.2,
     names:    { zh: "旅行者2号", en: "Voyager 2", ja: "ボイジャー2号" },
     location: { zh: "星际空间（南天方向）", en: "Interstellar space (southern sky)", ja: "恒星間空間（南天方向）" },
     agency: "NASA / JPL", launch: "1977-08-20", status: "active", major: true,
@@ -67,6 +81,7 @@ export const BODIES = [
   },
   {
     id: "pioneer10", category: "deep", au: 137, angle: 80, tilt: 3,
+    model: "./assets/models/pioneer.glb", modelScale: 1.0,
     names: { zh: "先驱者10号", en: "Pioneer 10", ja: "パイオニア10号" },
     location: { zh: "向金牛座方向飞行", en: "Coasting toward Taurus", ja: "おうし座方向へ航行中" },
     agency: "NASA", launch: "1972-03-03", status: "inactive",
@@ -79,6 +94,7 @@ export const BODIES = [
   },
   {
     id: "pioneer11", category: "deep", au: 113, angle: 240, tilt: 12,
+    model: "./assets/models/pioneer.glb", modelScale: 1.0,
     names: { zh: "先驱者11号", en: "Pioneer 11", ja: "パイオニア11号" },
     location: { zh: "向天鹰座方向飞行", en: "Coasting toward Aquila", ja: "わし座方向へ航行中" },
     agency: "NASA", launch: "1973-04-06", status: "inactive",
@@ -91,6 +107,7 @@ export const BODIES = [
   },
   {
     id: "newhorizons", category: "deep", au: 60, angle: 340, tilt: -2,
+    model: "./assets/models/newhorizons.glb", modelScale: 1.1,
     names: { zh: "新视野号", en: "New Horizons", ja: "ニューホライズンズ" },
     location: { zh: "柯伊伯带", en: "Kuiper Belt", ja: "カイパーベルト" },
     agency: "NASA / APL", launch: "2006-01-19", status: "active", major: true,
@@ -105,6 +122,7 @@ export const BODIES = [
   // === Outer solar system ===
   {
     id: "juno", category: "outer", au: 5.20, angle: 60, tilt: 1, jitter: [4, 1, 0],
+    model: "./assets/models/juno.glb", modelScale: 0.45,
     names: { zh: "朱诺号", en: "Juno", ja: "ジュノー" },
     location: { zh: "环绕木星", en: "Orbiting Jupiter", ja: "木星周回軌道" },
     agency: "NASA", launch: "2011-08-05", status: "active",
@@ -129,6 +147,7 @@ export const BODIES = [
   },
   {
     id: "cassini", category: "outer", au: 9.58, angle: 150, tilt: 0, jitter: [3, 0, 2],
+    model: "./assets/models/cassini.glb", modelScale: 1.0,
     names: { zh: "卡西尼号", en: "Cassini", ja: "カッシーニ" },
     location: { zh: "土星大气（已坠毁）", en: "Saturn's atmosphere (deorbited)", ja: "土星大気（突入終了）" },
     agency: "NASA / ESA / ASI", launch: "1997-10-15", status: "completed",
@@ -167,6 +186,7 @@ export const BODIES = [
   // === Mars ===
   {
     id: "perseverance", category: "mars", au: 1.52, angle: 280, tilt: 0, jitter: [0, 0.6, 0],
+    model: "./assets/models/rover.glb", modelScale: 0.6,
     names: { zh: "毅力号火星车", en: "Perseverance Rover", ja: "パーサヴィアランス" },
     location: { zh: "火星 · 杰泽罗陨石坑", en: "Mars · Jezero Crater", ja: "火星・ジェゼロクレーター" },
     agency: "NASA", launch: "2020-07-30", status: "active", major: true,
@@ -179,6 +199,7 @@ export const BODIES = [
   },
   {
     id: "curiosity", category: "mars", au: 1.52, angle: 280, tilt: 0, jitter: [-1.2, 0.4, 0.6],
+    model: "./assets/models/rover.glb", modelScale: 0.6,
     names: { zh: "好奇号火星车", en: "Curiosity Rover", ja: "キュリオシティ" },
     location: { zh: "火星 · 盖尔陨石坑", en: "Mars · Gale Crater", ja: "火星・ゲールクレーター" },
     agency: "NASA", launch: "2011-11-26", status: "active", major: true,
@@ -191,6 +212,7 @@ export const BODIES = [
   },
   {
     id: "zhurong", category: "mars", au: 1.52, angle: 280, tilt: 0, jitter: [1.2, 0.5, -0.8],
+    model: "./assets/models/rover.glb", modelScale: 0.55,
     names: { zh: "祝融号火星车", en: "Zhurong Rover", ja: "祝融" },
     location: { zh: "火星 · 乌托邦平原", en: "Mars · Utopia Planitia", ja: "火星・ユートピア平原" },
     agency: "CNSA", launch: "2020-07-23", status: "inactive", major: true,
@@ -289,6 +311,7 @@ export const BODIES = [
   },
   {
     id: "apollo11", category: "moon", au: 1.0, angle: 200, tilt: 0, jitter: [-1.4, 0.4, -0.5],
+    model: "./assets/models/apollo.glb", modelScale: 0.5,
     names: { zh: "阿波罗11号 · 静海基地", en: "Apollo 11 · Tranquility Base", ja: "アポロ11号・静かの海基地" },
     location: { zh: "月球 · 静海", en: "Moon · Mare Tranquillitatis", ja: "月・静かの海" },
     agency: "NASA", launch: "1969-07-16", status: "completed", major: true,
@@ -303,6 +326,7 @@ export const BODIES = [
   // === Earth orbit / Lagrange points ===
   {
     id: "iss", category: "earth", au: 1.0, angle: 200, tilt: 0, jitter: [0, 0, 1.0],
+    model: "./assets/models/iss.glb", modelScale: 0.5,
     names: { zh: "国际空间站 ISS", en: "International Space Station", ja: "国際宇宙ステーション" },
     location: { zh: "近地轨道（约 408 km）", en: "Low Earth orbit (~408 km)", ja: "低軌道（約408 km）" },
     agency: "NASA · Roscosmos · ESA · JAXA · CSA", launch: "1998-11-20", status: "active", major: true,
@@ -315,6 +339,7 @@ export const BODIES = [
   },
   {
     id: "tiangong", category: "earth", au: 1.0, angle: 200, tilt: 0, jitter: [0.4, -0.2, 0.9],
+    model: "./assets/models/tiangong.glb", modelScale: 0.5,
     names: { zh: "天宫空间站", en: "Tiangong Space Station", ja: "天宮宇宙ステーション" },
     location: { zh: "近地轨道（约 380 km）", en: "Low Earth orbit (~380 km)", ja: "低軌道（約380 km）" },
     agency: "CMSA", launch: "2021-04-29", status: "active", major: true,
@@ -327,6 +352,7 @@ export const BODIES = [
   },
   {
     id: "hubble", category: "earth", au: 1.0, angle: 200, tilt: 0, jitter: [-0.3, 0.5, 1.1],
+    model: "./assets/models/hubble.glb", modelScale: 0.65,
     names: { zh: "哈勃空间望远镜", en: "Hubble Space Telescope", ja: "ハッブル宇宙望遠鏡" },
     location: { zh: "近地轨道（约 540 km）", en: "Low Earth orbit (~540 km)", ja: "低軌道（約540 km）" },
     agency: "NASA / ESA", launch: "1990-04-24", status: "active", major: true,
@@ -352,6 +378,7 @@ export const BODIES = [
 
   {
     id: "jwst", category: "earth", au: 1.01, angle: 20, tilt: 0, jitter: [0, 1.4, 0],
+    model: "./assets/models/jwst.glb", modelScale: 0.6,
     names: { zh: "詹姆斯·韦伯空间望远镜", en: "James Webb Space Telescope", ja: "ジェイムズ・ウェッブ宇宙望遠鏡" },
     location: { zh: "日地 L2 拉格朗日点", en: "Sun–Earth L2 Lagrange point", ja: "太陽-地球 L2ラグランジュ点" },
     agency: "NASA / ESA / CSA", launch: "2021-12-25", status: "active", major: true,
@@ -414,6 +441,7 @@ export const BODIES = [
   // === Inner solar system ===
   {
     id: "psp", category: "inner", au: 0.07, angle: 350, tilt: 1,
+    model: "./assets/models/psp.glb", modelScale: 0.6,
     names: { zh: "帕克太阳探测器", en: "Parker Solar Probe", ja: "パーカー・ソーラー・プローブ" },
     location: { zh: "太阳日冕（最近距离 ~6.9 Gm）", en: "Solar corona (perihelion ~6.9 Gm)", ja: "太陽コロナ近傍（最近接 約6.9 Gm）" },
     agency: "NASA / APL", launch: "2018-08-12", status: "active", major: true,
