@@ -774,6 +774,7 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- Animation loop ----------
+let _loadingDismissed = false;
 function tick() {
   requestAnimationFrame(tick);
   if (state.flyTween) state.flyTween(performance.now());
@@ -793,14 +794,18 @@ function tick() {
 
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
-}
 
-// Hide loading then start
-window.addEventListener("load", () => {
-  setTimeout(() => {
+  // Hide loading overlay on the first rendered frame. Doing this here (rather
+  // than in a `window.load` listener) means we don't block on the browser
+  // finishing every CDN sub-resource — the scene is already set up and we've
+  // just produced a frame, so the user can start interacting immediately.
+  if (!_loadingDismissed) {
+    _loadingDismissed = true;
     const ld = document.getElementById("loading");
-    ld.classList.add("fade");
-    setTimeout(() => ld.remove(), 700);
-  }, 200);
-});
+    if (ld) {
+      ld.classList.add("fade");
+      setTimeout(() => { if (ld.parentNode) ld.remove(); }, 700);
+    }
+  }
+}
 tick();
