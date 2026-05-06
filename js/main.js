@@ -8,8 +8,8 @@ import { I18N, detectLang, persistLang } from "./i18n.js";
 
 // ---------- State ----------
 let lang = detectLang();
-let _loadingDismissed = false;
-let _loadingMessageKey = "loading";
+let loadingDismissed = false;
+let loadingMessageKey = "loading";
 const state = {
   bodyMeshes: [],   // { data, group, lod, hit, sprite, core, label, labelEl, color, importance }
   refMeshes: [],    // reference (Sun + planets) for context
@@ -36,8 +36,8 @@ function translateUi(key) {
 }
 
 function setLoadingMessage(key, error = false) {
-  _loadingMessageKey = key;
-  if (!loadingEl || !loadingTextEl || _loadingDismissed) return;
+  loadingMessageKey = key;
+  if (!loadingEl || !loadingTextEl || loadingDismissed) return;
   loadingTextEl.textContent = translateUi(key);
   loadingEl.classList.toggle("error", error);
 }
@@ -46,12 +46,18 @@ function showLoadingError(key = "load_failed") {
   setLoadingMessage(key, true);
 }
 
-window.addEventListener("error", () => {
-  if (!_loadingDismissed && _loadingMessageKey === "loading") showLoadingError("load_failed");
+window.addEventListener("error", (event) => {
+  if (!loadingDismissed && loadingMessageKey === "loading") {
+    console.error("Viewer bootstrap failed:", event.error || event.message || event);
+    showLoadingError("load_failed");
+  }
 });
 
-window.addEventListener("unhandledrejection", () => {
-  if (!_loadingDismissed && _loadingMessageKey === "loading") showLoadingError("load_failed");
+window.addEventListener("unhandledrejection", (event) => {
+  if (!loadingDismissed && loadingMessageKey === "loading") {
+    console.error("Viewer bootstrap rejected:", event.reason || event);
+    showLoadingError("load_failed");
+  }
 });
 
 // ---------- Scene setup ----------
@@ -585,8 +591,8 @@ function applyLang() {
   document.querySelectorAll(".lang-switch button").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.lang === lang);
   });
-  if (!_loadingDismissed && loadingTextEl) {
-    loadingTextEl.textContent = translateUi(_loadingMessageKey);
+  if (!loadingDismissed && loadingTextEl) {
+    loadingTextEl.textContent = translateUi(loadingMessageKey);
   }
   // Update labels
   state.bodyMeshes.forEach(b => {
@@ -836,7 +842,7 @@ function tick() {
   // finishing every CDN sub-resource — the scene is already set up and we've
   // just produced a frame, so the user can start interacting immediately.
   if (!_loadingDismissed) {
-    _loadingDismissed = true;
+    loadingDismissed = true;
     const ld = document.getElementById("loading");
     if (ld) {
       ld.classList.add("fade");
