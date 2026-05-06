@@ -31,14 +31,14 @@ const CATEGORY_COLOR = {
 const loadingEl = document.getElementById("loading");
 const loadingTextEl = loadingEl ? loadingEl.querySelector(".loading-text") : null;
 
-function translateUi(key) {
+function getUiText(key) {
   return (I18N[lang] && I18N[lang][key]) || (I18N.en && I18N.en[key]) || key;
 }
 
 function setLoadingMessage(key, error = false) {
   loadingMessageKey = key;
   if (!loadingEl || !loadingTextEl || loadingDismissed) return;
-  loadingTextEl.textContent = translateUi(key);
+  loadingTextEl.textContent = getUiText(key);
   loadingEl.classList.toggle("error", error);
 }
 
@@ -46,19 +46,22 @@ function showLoadingError(key = "load_failed") {
   setLoadingMessage(key, true);
 }
 
-window.addEventListener("error", (event) => {
+function handleBootstrapError(event) {
   if (!loadingDismissed && loadingMessageKey === "loading") {
     console.error("Viewer bootstrap failed:", event.error || event.message || event);
     showLoadingError("load_failed");
   }
-});
+}
 
-window.addEventListener("unhandledrejection", (event) => {
+function handleBootstrapRejection(event) {
   if (!loadingDismissed && loadingMessageKey === "loading") {
     console.error("Viewer bootstrap rejected:", event.reason || event);
     showLoadingError("load_failed");
   }
-});
+}
+
+window.addEventListener("error", handleBootstrapError);
+window.addEventListener("unhandledrejection", handleBootstrapRejection);
 
 // ---------- Scene setup ----------
 const canvas = document.getElementById("scene");
@@ -592,7 +595,7 @@ function applyLang() {
     btn.classList.toggle("active", btn.dataset.lang === lang);
   });
   if (!loadingDismissed && loadingTextEl) {
-    loadingTextEl.textContent = translateUi(loadingMessageKey);
+    loadingTextEl.textContent = getUiText(loadingMessageKey);
   }
   // Update labels
   state.bodyMeshes.forEach(b => {
@@ -843,6 +846,8 @@ function tick() {
   // just produced a frame, so the user can start interacting immediately.
   if (!loadingDismissed) {
     loadingDismissed = true;
+    window.removeEventListener("error", handleBootstrapError);
+    window.removeEventListener("unhandledrejection", handleBootstrapRejection);
     const ld = document.getElementById("loading");
     if (ld) {
       ld.classList.add("fade");
