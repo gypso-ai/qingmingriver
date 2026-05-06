@@ -11,7 +11,7 @@ A Three.js single-page application for exploring human-made spacecraft and probe
 - **搜索 / Search** — fuzzy match across names, locations and operators in all three languages.
 - **多语言 / i18n** — 中文、English、日本語 切换；自动检测浏览器语言。
 - **科幻视觉 / Sci-fi look** — glassmorphism HUD, glow sprites, starfield, log-scaled distances so deep-space probes and Earth-orbit hardware fit one frame.
-- **静态部署 / Static** — pure HTML / CSS / ES-module JS, Three.js loaded from CDN via `importmap`.
+- **静态部署 / Static** — pure HTML / CSS / ES-module JS with vendored Three.js modules, so startup does not depend on third-party CDNs.
 
 ## 🚀 Local preview
 

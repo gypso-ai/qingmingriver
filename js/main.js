@@ -1,10 +1,10 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as THREE from "../vendor/three/build/three.module.js";
+import { OrbitControls } from "../vendor/three/examples/jsm/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "../vendor/three/examples/jsm/renderers/CSS2DRenderer.js";
+import { GLTFLoader } from "../vendor/three/examples/jsm/loaders/GLTFLoader.js";
 
 import { BODIES, REFERENCE_BODIES, pos } from "./data.js";
-import { I18N, detectLang } from "./i18n.js";
+import { I18N, detectLang, persistLang } from "./i18n.js";
 
 // ---------- State ----------
 let lang = detectLang();
@@ -572,7 +572,7 @@ function applyLang() {
 document.querySelectorAll(".lang-switch button").forEach(btn => {
   btn.addEventListener("click", () => {
     lang = btn.dataset.lang;
-    localStorage.setItem("aceb-lang", lang);
+    persistLang(lang);
     applyLang();
   });
 });
