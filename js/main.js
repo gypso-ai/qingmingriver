@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { BODIES, REFERENCE_BODIES, pos } from "./data.js";
 import { I18N, detectLang } from "./i18n.js";
@@ -8,10 +9,12 @@ import { I18N, detectLang } from "./i18n.js";
 // ---------- State ----------
 let lang = detectLang();
 const state = {
-  bodyMeshes: [],   // { data, mesh, label, worldPos, color }
+  bodyMeshes: [],   // { data, group, lod, hit, sprite, core, label, labelEl, color, importance }
   refMeshes: [],    // reference (Sun + planets) for context
   selected: null,
+  hoveredId: null,
   flyTween: null,
+  labelClusters: [], // { el, css2d } pool
 };
 
 const CATEGORY_COLOR = {
@@ -112,12 +115,31 @@ function buildReferenceBodies() {
   REFERENCE_BODIES.forEach(b => {
     const p = pos(b.au, b.angle);
     const isSun = b.id === "sun";
+
+    // LOD container so we can swap a real glTF model in for closeups.
+    const lod = new THREE.LOD();
     const geo = new THREE.SphereGeometry(b.size, 32, 24);
     const mat = new THREE.MeshBasicMaterial({ color: b.color });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(p.x, p.y, p.z);
-    mesh.userData = { kind: "reference", id: b.id };
-    scene.add(mesh);
+    const sphere = new THREE.Mesh(geo, mat);
+    // Always-on simple sphere (mid/far level).
+    lod.addLevel(sphere, 0);
+    lod.position.set(p.x, p.y, p.z);
+    lod.userData = { kind: "reference", id: b.id };
+    scene.add(lod);
+
+    if (b.model) {
+      attachModelToLOD(lod, b.model, {
+        scale: b.modelScale || b.size,
+        rotation: b.modelRotation || null,
+        near: 0,
+      });
+      // Push the simple sphere out to be the *far* level so the model is used
+      // up close, falling back to the colored sphere when distant.
+      // (LOD picks the highest-level whose distance threshold <= camDist; we
+      //  rely on the model being added with near=0 and we re-add the sphere
+      //  at a larger threshold.)
+      lod.addLevel(sphere.clone(), Math.max(20, b.size * 40));
+    }
 
     if (isSun) {
       // Sun glow
@@ -130,9 +152,9 @@ function buildReferenceBodies() {
         fragmentShader: `varying vec3 vN; uniform vec3 c; void main(){ float i = pow(0.7 - dot(vN, vec3(0.0,0.0,1.0)), 2.0); gl_FragColor = vec4(c, i*0.55); }`,
       });
       const glow = new THREE.Mesh(glowGeo, glowMat);
-      mesh.add(glow);
+      lod.add(glow);
       const light = new THREE.PointLight(0xfff2c8, 1.2, 0, 0);
-      mesh.add(light);
+      lod.add(light);
     }
 
     // Body label
@@ -142,12 +164,71 @@ function buildReferenceBodies() {
     div.dataset.id = b.id;
     const labelObj = new CSS2DObject(div);
     labelObj.position.set(0, b.size + 1.3, 0);
-    mesh.add(labelObj);
+    lod.add(labelObj);
 
-    state.refMeshes.push({ data: b, mesh, labelEl: div });
+    state.refMeshes.push({ data: b, mesh: lod, labelEl: div });
   });
 }
 buildReferenceBodies();
+
+// ---------- Model loading infrastructure (PR2) ----------
+// Lazy-loaded glTF models, cached by URL. Each entry resolves to the loaded
+// gltf.scene Object3D. Future calls reuse the cached scene via `.clone(true)`
+// so each LOD instance gets its own transform.
+const _modelCache = new Map();   // url -> Promise<Object3D>
+const _gltfLoader = new GLTFLoader();
+
+function loadModel(url) {
+  if (_modelCache.has(url)) return _modelCache.get(url);
+  const p = new Promise((resolve, reject) => {
+    _gltfLoader.load(
+      url,
+      (gltf) => {
+        const root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+        if (!root) { reject(new Error("Empty glTF: " + url)); return; }
+        // Bake-in some traversal-time tweaks: avoid frustum culling issues for
+        // models whose bounds are hard to compute, and disable shadows.
+        root.traverse(o => {
+          if (o.isMesh) {
+            o.castShadow = false;
+            o.receiveShadow = false;
+            o.frustumCulled = true;
+          }
+        });
+        resolve(root);
+      },
+      undefined,
+      (err) => {
+        console.warn("Failed to load model", url, err);
+        reject(err);
+      }
+    );
+  });
+  _modelCache.set(url, p);
+  return p;
+}
+
+// Plug a loaded model into a THREE.LOD as the highest detail level. The LOD
+// already has lower-detail fallbacks (sphere / sprite) in place at construction
+// time, so the experience degrades gracefully if loading fails.
+function attachModelToLOD(lod, url, opts = {}) {
+  const { scale = 1, rotation = null, near = 0, position = null } = opts;
+  loadModel(url).then(srcRoot => {
+    const inst = srcRoot.clone(true);
+    inst.traverse(o => {
+      // Clone materials so per-instance tweaks (color, opacity) don't leak.
+      if (o.isMesh && o.material) {
+        o.material = Array.isArray(o.material)
+          ? o.material.map(m => m.clone())
+          : o.material.clone();
+      }
+    });
+    inst.scale.setScalar(scale);
+    if (rotation) inst.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
+    if (position) inst.position.set(position[0] || 0, position[1] || 0, position[2] || 0);
+    lod.addLevel(inst, near);
+  }).catch(() => { /* fallback levels remain visible */ });
+}
 
 // ---------- Spacecraft ----------
 function makeCraftSprite(color, major) {
@@ -182,7 +263,8 @@ function makeCraftSprite(color, major) {
   return sprite;
 }
 
-// Each craft is a Group: invisible pickable hit-sphere + glow sprite + small core
+// Each craft is a Group: invisible pickable hit-sphere + LOD with
+// (near) optional glTF model, (mid) tiny solid core, (far) glow sprite.
 function buildBodies() {
   BODIES.forEach(b => {
     const p = pos(b.au, b.angle, b.tilt || 0, b.jitter || null);
@@ -191,17 +273,37 @@ function buildBodies() {
     const group = new THREE.Group();
     group.position.set(p.x, p.y, p.z);
 
-    // Glow sprite (clone shared material so each can be tinted independently)
-    const proto = makeCraftSprite(color, !!b.major);
-    const sprite = new THREE.Sprite(proto.material);
-    sprite.scale.copy(proto.scale);
-    group.add(sprite);
-
-    // Tiny solid core for crispness
+    // --- LOD: model (added async) -> core mesh -> sprite ---
+    const lod = new THREE.LOD();
+    // Tiny solid core for crispness (mid-detail). Always present so something
+    // shows up even before any model loads.
     const coreGeo = new THREE.SphereGeometry(b.major ? 0.45 : 0.3, 12, 10);
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const core = new THREE.Mesh(coreGeo, coreMat);
-    group.add(core);
+
+    // Glow sprite (clone shared material so each can be tinted independently).
+    const proto = makeCraftSprite(color, !!b.major);
+    const sprite = new THREE.Sprite(proto.material);
+    sprite.scale.copy(proto.scale);
+
+    // Levels: index = camera distance threshold (must be ascending).
+    // Near (0): the core / model. Mid (60): the core only. Far (300): sprite.
+    lod.addLevel(core, 0);
+    lod.addLevel(sprite, b.major ? 350 : 180);
+    group.add(lod);
+
+    // Always-on far halo: keeps the body visible at any distance even when the
+    // LOD has switched to the sprite. The sprite itself is in the LOD too.
+    // (No extra mesh needed — sprite is the far level.)
+
+    // Async glTF model becomes a *closer* level than the core when ready.
+    if (b.model) {
+      attachModelToLOD(lod, b.model, {
+        scale: b.modelScale || 1,
+        rotation: b.modelRotation || null,
+        near: 0,
+      });
+    }
 
     // Invisible larger hit sphere for easy picking
     const hitGeo = new THREE.SphereGeometry(2.2, 8, 6);
@@ -220,7 +322,16 @@ function buildBodies() {
     group.add(label);
 
     scene.add(group);
-    state.bodyMeshes.push({ data: b, group, hit, sprite, core, labelEl: div, color });
+
+    // Importance: hand-tuned priority used by the screen-space label LOD.
+    // Higher number = wins more collision contests, shows label sooner.
+    const importance = (typeof b.importance === "number")
+      ? b.importance
+      : (b.major ? 2 : 1);
+
+    state.bodyMeshes.push({
+      data: b, group, lod, hit, sprite, core, label, labelEl: div, color, importance
+    });
   });
 }
 buildBodies();
@@ -467,6 +578,191 @@ document.querySelectorAll(".lang-switch button").forEach(btn => {
 });
 applyLang();
 
+// ---------- Label LOD / screen-space collision (PR1) ----------
+// Strategy:
+//  1. Each frame we project every label anchor into screen space and gather
+//     its bounding box, importance and depth.
+//  2. We sort by (importance desc, depth asc). Higher-importance, closer
+//     labels win and "occupy" their box.
+//  3. Lower-priority labels overlapping an occupied box get downgraded —
+//     either to the small dot ("collapsed") or fully hidden if too far.
+//  4. Hidden labels in the same screen cell are tallied; if a cell ends up
+//     with >= 3 hidden bodies, we spawn a cluster bubble at their centroid
+//     showing the count. Clicking a cluster zooms toward the centroid.
+const _vec = new THREE.Vector3();
+const _proj = new THREE.Vector3();
+const _occupied = []; // array of {x0,y0,x1,y1, importance}
+
+// Cluster pool: reuse DOM nodes / CSS2DObjects rather than churn the DOM.
+function ensureClusterPool(n) {
+  while (state.labelClusters.length < n) {
+    const el = document.createElement("div");
+    el.className = "label-cluster";
+    el.style.opacity = "0";
+    const obj = new CSS2DObject(el);
+    obj.visible = false;
+    scene.add(obj);
+    el.addEventListener("click", () => {
+      const cx = parseFloat(el.dataset.cx);
+      const cy = parseFloat(el.dataset.cy);
+      const cz = parseFloat(el.dataset.cz);
+      if (!Number.isFinite(cx)) return;
+      flyTo(new THREE.Vector3(cx, cy, cz), 14);
+    });
+    state.labelClusters.push({ el, obj });
+  }
+}
+
+function rectsOverlap(a, b) {
+  return !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0);
+}
+
+function updateLabelLayout() {
+  const w = window.innerWidth, h = window.innerHeight;
+  _occupied.length = 0;
+
+  const camPos = camera.position;
+  const items = [];
+
+  // 1) Gather candidates. Selected and hovered always force visibility.
+  for (const b of state.bodyMeshes) {
+    b.group.getWorldPosition(_vec);
+    _proj.copy(_vec).project(camera);
+    // Behind camera -> hide
+    if (_proj.z < -1 || _proj.z > 1) {
+      b.labelEl.style.opacity = "0";
+      b.labelEl.classList.remove("collapsed");
+      b.label.visible = false;
+      continue;
+    }
+    b.label.visible = true;
+
+    const sx = (_proj.x * 0.5 + 0.5) * w;
+    const sy = (1 - (_proj.y * 0.5 + 0.5)) * h;
+    const depth = camPos.distanceTo(_vec);
+
+    // Boost importance for selected / hovered so they always win contests.
+    let imp = b.importance;
+    const isSel = b.data.id === state.selected;
+    const isHover = b.data.id === state.hoveredId;
+    if (isSel) imp += 100;
+    else if (isHover) imp += 50;
+
+    // Approximate label box in pixels. Major labels are slightly larger.
+    const halfW = b.data.major ? 60 : 48;
+    const halfH = 11;
+    items.push({
+      b, sx, sy, depth, imp, isSel, isHover,
+      box: { x0: sx - halfW, y0: sy - halfH, x1: sx + halfW, y1: sy + halfH, importance: imp },
+      worldX: _vec.x, worldY: _vec.y, worldZ: _vec.z,
+    });
+  }
+
+  // 2) Sort: selected first, then importance desc, then depth asc (closer wins).
+  items.sort((a, b) => {
+    if (a.isSel !== b.isSel) return a.isSel ? -1 : 1;
+    if (b.imp !== a.imp) return b.imp - a.imp;
+    return a.depth - b.depth;
+  });
+
+  // 3) Walk in priority order, occupying boxes; collapsed losers tallied per cell.
+  const cellSize = 80;
+  const cellHidden = new Map(); // key "cx,cy" -> { count, sumX, sumY, sumWX, sumWY, sumWZ }
+  const camDist = camera.position.distanceTo(controls.target);
+
+  for (const it of items) {
+    const { b, box, isSel, isHover, depth } = it;
+    const el = b.labelEl;
+    el.classList.toggle("selected", isSel);
+
+    // Distance-based hard cull: tiny minor labels disappear when far away.
+    const distanceCull =
+      !isSel && !isHover && !b.data.major &&
+      (camDist > 600 || depth > 400);
+
+    let collide = false;
+    if (!isSel && !isHover) {
+      for (let i = 0; i < _occupied.length; i++) {
+        if (rectsOverlap(box, _occupied[i])) { collide = true; break; }
+      }
+    }
+
+    if (distanceCull || (collide && !b.data.major)) {
+      // Hide minor lost labels into clusters
+      el.style.opacity = "0";
+      el.classList.remove("collapsed");
+      const cx = Math.floor(it.sx / cellSize);
+      const cy = Math.floor(it.sy / cellSize);
+      const key = cx + "," + cy;
+      let c = cellHidden.get(key);
+      if (!c) { c = { count: 0, sumX: 0, sumY: 0, sumWX: 0, sumWY: 0, sumWZ: 0 }; cellHidden.set(key, c); }
+      c.count++;
+      c.sumX += it.sx; c.sumY += it.sy;
+      c.sumWX += it.worldX; c.sumWY += it.worldY; c.sumWZ += it.worldZ;
+      continue;
+    }
+
+    if (collide && b.data.major) {
+      // Major labels collapse to a small dot rather than disappear.
+      el.classList.add("collapsed");
+      el.style.opacity = "0.85";
+      // Don't occupy any space — the dot is small.
+      continue;
+    }
+
+    // Visible at full size: occupy its box and unhide.
+    el.classList.remove("collapsed");
+    el.style.opacity = isSel ? "1" : (b.data.major ? "1" : (camDist > 250 ? "0.7" : "0.95"));
+    _occupied.push(box);
+  }
+
+  // 4) Render clusters for cells with >=3 hidden labels.
+  const clusters = [];
+  for (const [, c] of cellHidden) {
+    if (c.count < 3) continue;
+    clusters.push(c);
+  }
+  ensureClusterPool(clusters.length);
+  for (let i = 0; i < state.labelClusters.length; i++) {
+    const slot = state.labelClusters[i];
+    const cluster = clusters[i];
+    if (!cluster) {
+      slot.obj.visible = false;
+      slot.el.style.opacity = "0";
+      continue;
+    }
+    const wx = cluster.sumWX / cluster.count;
+    const wy = cluster.sumWY / cluster.count;
+    const wz = cluster.sumWZ / cluster.count;
+    slot.obj.position.set(wx, wy, wz);
+    slot.obj.visible = true;
+    slot.el.textContent = "+" + cluster.count;
+    slot.el.dataset.cx = wx;
+    slot.el.dataset.cy = wy;
+    slot.el.dataset.cz = wz;
+    slot.el.style.opacity = "1";
+  }
+}
+
+// Reference body labels: simple distance fade (they rarely overlap).
+function updateReferenceLabels() {
+  const camDist = camera.position.distanceTo(controls.target);
+  for (const r of state.refMeshes) {
+    // Always visible but fade slightly when very far.
+    r.labelEl.style.opacity = camDist > 1200 ? "0.4" : "1";
+  }
+}
+
+// Hover detection on the canvas to boost a label's importance.
+canvas.addEventListener("pointermove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(getPickables(), false);
+  state.hoveredId = hits.length ? hits[0].object.userData.id : null;
+});
+
 // ---------- Resize ----------
 function onResize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -483,17 +779,17 @@ function tick() {
   if (state.flyTween) state.flyTween(performance.now());
   controls.update();
 
-  // Distance-based label fading: hide minor labels when far
-  const camDist = camera.position.distanceTo(controls.target);
-  state.bodyMeshes.forEach(b => {
-    const isSel = b.data.id === state.selected;
-    if (isSel) { b.labelEl.style.opacity = "1"; return; }
-    if (b.data.major) {
-      b.labelEl.style.opacity = camDist > 600 ? "0.2" : "1";
-    } else {
-      b.labelEl.style.opacity = camDist > 250 ? "0" : (camDist > 120 ? "0.4" : "0.85");
-    }
-  });
+  // Drive THREE.LOD level switches based on camera distance.
+  for (const b of state.bodyMeshes) {
+    if (b.lod && b.lod.update) b.lod.update(camera);
+  }
+  for (const r of state.refMeshes) {
+    if (r.mesh && r.mesh.isLOD && r.mesh.update) r.mesh.update(camera);
+  }
+
+  // Screen-space label LOD / collision (replaces previous simple fade).
+  updateLabelLayout();
+  updateReferenceLabels();
 
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
