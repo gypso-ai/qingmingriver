@@ -841,7 +841,7 @@ function tick() {
   // than in a `window.load` listener) means we don't block on the browser
   // finishing every CDN sub-resource — the scene is already set up and we've
   // just produced a frame, so the user can start interacting immediately.
-  if (!_loadingDismissed) {
+  if (!loadingDismissed) {
     loadingDismissed = true;
     const ld = document.getElementById("loading");
     if (ld) {
