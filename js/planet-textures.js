@@ -90,7 +90,9 @@ function fillCanvas(ctx, seed, colorAt, noiseScale = 4) {
       const theta = u * Math.PI * 2;
       const nx = Math.cos(theta) * noiseScale;
       const nz = Math.sin(theta) * noiseScale;
-      const n = fbm(nx + 17, v * noiseScale * 2 + nz * 0.0, seed);
+      // Mix one longitudinal axis with the latitude — keeps the texture
+      // continuous across the u=0/u=1 seam since (nx, nz) traces a circle.
+      const n = fbm(nx + 17, v * noiseScale * 2 + nz * 0.25, seed);
       const [r, g, b] = colorAt(u, v, n);
       const i = (y * TEX_W + x) * 4;
       data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
