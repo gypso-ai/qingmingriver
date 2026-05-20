@@ -5,6 +5,7 @@ import { GLTFLoader } from "../vendor/three/examples/jsm/loaders/GLTFLoader.js";
 
 import { BODIES, REFERENCE_BODIES, pos } from "./data.js";
 import { I18N, detectLang, persistLang } from "./i18n.js";
+import { getPlanetTexture, getEarthCloudsTexture } from "./planet-textures.js";
 
 // ---------- State ----------
 let lang = detectLang();
@@ -78,6 +79,11 @@ renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
 scene.fog = null;
+
+// Faint ambient so MeshStandardMaterial planets remain readable far from the
+// Sun's PointLight (e.g. Neptune, Pluto, and the interstellar probe distances
+// where the inverse-square sunlight is effectively zero).
+scene.add(new THREE.AmbientLight(0x6f7f99, 0.35));
 
 const camera = new THREE.PerspectiveCamera(
   55, window.innerWidth / window.innerHeight, 0.1, 5000
@@ -154,34 +160,134 @@ function makeOrbitRing(au, color = 0x1d3050, opacity = 0.45) {
 });
 
 // ---------- Reference bodies (Sun + planets) ----------
+// Per-body presentation overrides for the far-LOD textured sphere — adds
+// Earth clouds + atmosphere, Saturn ring, axial tilt, and self-spin. This is
+// inspired by matteodante/portfolio-cockpit's `components/cockpit/scene/three/
+// planets.ts`, ported to qingmingriver's static / no-CDN setup using
+// procedurally-generated canvas textures (see js/planet-textures.js).
+const PLANET_PRESENTATION = {
+  // axisTilt: radians around Z applied to the LOD group
+  // spin: radians per second of self-rotation around the (tilted) Y axis
+  // emissiveIntensity: small self-illumination so the planet stays visible far
+  //                    from the Sun's PointLight even with little ambient
+  sun:     { spin: 0.05,  emissiveIntensity: 1.0, unlit: true },
+  mercury: { spin: 0.015, emissiveIntensity: 0.08 },
+  venus:   { spin: 0.008, emissiveIntensity: 0.12 },
+  earth:   { spin: 0.12,  emissiveIntensity: 0.06, axisTilt: 0.41 /* ~23.4° */, clouds: true, atmosphere: 0x4a90e2 },
+  mars:    { spin: 0.10,  emissiveIntensity: 0.08, axisTilt: 0.44 },
+  jupiter: { spin: 0.22,  emissiveIntensity: 0.06 },
+  saturn:  { spin: 0.20,  emissiveIntensity: 0.06, axisTilt: 0.47, ring: true },
+  uranus:  { spin: 0.14,  emissiveIntensity: 0.06, axisTilt: 1.71 /* ~98° */ },
+  neptune: { spin: 0.14,  emissiveIntensity: 0.08 },
+  pluto:   { spin: 0.03,  emissiveIntensity: 0.10 },
+};
+
 function buildReferenceBodies() {
   REFERENCE_BODIES.forEach(b => {
     const p = pos(b.au, b.angle);
     const isSun = b.id === "sun";
+    const cfg = PLANET_PRESENTATION[b.id] || {};
 
     // LOD container so we can swap a real glTF model in for closeups.
     const lod = new THREE.LOD();
-    const geo = new THREE.SphereGeometry(b.size, 32, 24);
-    const mat = new THREE.MeshBasicMaterial({ color: b.color });
+    // `bodyGroup` holds the self-spinning, axis-tilted sphere stack (planet +
+    // clouds + ring). The atmosphere halo is added to `lod` directly so it
+    // doesn't rotate visibly with the planet. It's registered as LOD level 0
+    // further below via `lod.addLevel(bodyGroup, 0)`.
+    const bodyGroup = new THREE.Group();
+    if (cfg.axisTilt) bodyGroup.rotation.z = cfg.axisTilt;
+
+    const planetTex = getPlanetTexture(b.id);
+    const geo = new THREE.SphereGeometry(b.size, 48, 32);
+    const mat = cfg.unlit
+      // Sun: emissive, ignore scene lighting entirely.
+      ? new THREE.MeshBasicMaterial({ color: 0xffffff, map: planetTex || null })
+      : new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          map: planetTex || null,
+          emissive: new THREE.Color(b.color),
+          emissiveIntensity: cfg.emissiveIntensity ?? 0.08,
+          roughness: 0.85,
+          metalness: 0.05,
+        });
+    // Fall back to flat colour if the procedural texture is missing.
+    if (!planetTex) mat.color = new THREE.Color(b.color);
     const sphere = new THREE.Mesh(geo, mat);
-    // Always-on simple sphere (mid/far level).
-    lod.addLevel(sphere, 0);
+    bodyGroup.add(sphere);
+
+    // Earth: translucent cloud shell.
+    if (cfg.clouds) {
+      const cloudTex = getEarthCloudsTexture();
+      const cloudGeo = new THREE.SphereGeometry(b.size * 1.015, 48, 32);
+      const cloudMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: cloudTex,
+        alphaMap: cloudTex,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        roughness: 0.95,
+        metalness: 0,
+        emissive: 0x8fb7ff,
+        emissiveIntensity: 0.04,
+      });
+      const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+      // Slightly different spin from the surface for parallax.
+      clouds.userData.cloudLayer = true;
+      bodyGroup.add(clouds);
+    }
+
+    // Saturn: faint ring on the textured close-up sphere. The procedural GLB
+    // model already has its own ring built in (see tools/build-models.mjs),
+    // so as the LOD transitions from this stack out to the GLB the ring
+    // remains visible.
+    if (cfg.ring) {
+      const ringGeo = new THREE.RingGeometry(b.size * 1.4, b.size * 2.1, 96);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xd9c08c,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.PI / 2;
+      bodyGroup.add(ring);
+    }
+
+    // Earth: outer atmospheric halo (back-side fresnel-style).
+    if (cfg.atmosphere) {
+      const atmoGeo = new THREE.SphereGeometry(b.size * 1.1, 32, 24);
+      const atmoMat = new THREE.MeshBasicMaterial({
+        color: cfg.atmosphere,
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.BackSide,
+        depthWrite: false,
+      });
+      lod.add(new THREE.Mesh(atmoGeo, atmoMat));
+    }
+
+    lod.addLevel(bodyGroup, 0);
     lod.position.set(p.x, p.y, p.z);
-    lod.userData = { kind: "reference", id: b.id };
+    lod.userData = { kind: "reference", id: b.id, spin: cfg.spin || 0 };
     scene.add(lod);
 
     if (b.model) {
+      // Reserve the close-distance LOD level for the new textured sphere
+      // (clouds + atmosphere + ring + self-spin — the actual "planet model"
+      // feature ported from portfolio-cockpit). The procedural GLB falls in
+      // at a mid distance where it acts as a lighter-weight stand-in, and a
+      // plain-coloured dot takes over when very far.
       attachModelToLOD(lod, b.model, {
         scale: b.modelScale || b.size,
         rotation: b.modelRotation || null,
-        near: 0,
+        near: Math.max(b.size * 12, 12),
       });
-      // Push the simple sphere out to be the *far* level so the model is used
-      // up close, falling back to the colored sphere when distant.
-      // (LOD picks the highest-level whose distance threshold <= camDist; we
-      //  rely on the model being added with near=0 and we re-add the sphere
-      //  at a larger threshold.)
-      lod.addLevel(sphere.clone(), Math.max(20, b.size * 40));
+      const farGeo = new THREE.SphereGeometry(b.size, 16, 12);
+      const farMat = new THREE.MeshBasicMaterial({ color: b.color });
+      const farSphere = new THREE.Mesh(farGeo, farMat);
+      lod.addLevel(farSphere, Math.max(b.size * 80, 120));
     }
 
     if (isSun) {
@@ -209,7 +315,7 @@ function buildReferenceBodies() {
     labelObj.position.set(0, b.size + 1.3, 0);
     lod.add(labelObj);
 
-    state.refMeshes.push({ data: b, mesh: lod, labelEl: div });
+    state.refMeshes.push({ data: b, mesh: lod, labelEl: div, bodyGroup, spin: cfg.spin || 0 });
   });
 }
 buildReferenceBodies();
@@ -820,9 +926,13 @@ function onResize() {
 window.addEventListener("resize", onResize);
 
 // ---------- Animation loop ----------
+let lastTickMs = performance.now();
 function tick() {
   requestAnimationFrame(tick);
-  if (state.flyTween) state.flyTween(performance.now());
+  const now = performance.now();
+  const dt = Math.min(0.1, (now - lastTickMs) / 1000); // clamp huge gaps (tab restored)
+  lastTickMs = now;
+  if (state.flyTween) state.flyTween(now);
   controls.update();
 
   // Drive THREE.LOD level switches based on camera distance.
@@ -831,6 +941,16 @@ function tick() {
   }
   for (const r of state.refMeshes) {
     if (r.mesh && r.mesh.isLOD && r.mesh.update) r.mesh.update(camera);
+    // Self-spin: rotate the tilted body group (so the axial tilt is preserved)
+    // and give cloud layers a slightly faster drift for a parallax feel.
+    if (r.spin && r.bodyGroup) {
+      r.bodyGroup.rotation.y += r.spin * dt;
+      for (const child of r.bodyGroup.children) {
+        if (child.userData && child.userData.cloudLayer) {
+          child.rotation.y += r.spin * 0.35 * dt;
+        }
+      }
+    }
   }
 
   // Screen-space label LOD / collision (replaces previous simple fade).
